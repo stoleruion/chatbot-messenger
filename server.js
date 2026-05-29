@@ -1,15 +1,12 @@
 // v3
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
-
 const app = express();
 app.use(express.json());
-
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const PAGE_TOKEN = process.env.PAGE_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const istoricConversatii = {};
-
 app.get('/webhook', (req, res) => {
   if (req.query['hub.verify_token'] === VERIFY_TOKEN) {
     res.send(req.query['hub.challenge']);
@@ -17,7 +14,6 @@ app.get('/webhook', (req, res) => {
     res.sendStatus(403);
   }
 });
-
 app.post('/webhook', async (req, res) => {
   const entry = req.body.entry?.[0]?.messaging?.[0];
   if (!entry?.message?.text) return res.sendStatus(200);
@@ -28,27 +24,7 @@ app.post('/webhook', async (req, res) => {
   const raspuns = await claude.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 1024,
-    system: `Ești asistentul magazinului MD SHOP. Răspunzi în română, natural și prietenos.
-Ajuți clienții cu întrebări despre produse și comenzi.
-Te adaptezi la fiecare client, nu folosești răspunsuri șablon.`,
-    messages: istoricConversatii[userId],
-  });
-  const textRaspuns = raspuns.content[0].text;
-  istoricConversatii[userId].push({ role: 'assistant', content: textRaspuns });
-  await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      recipient: { id: userId },
-      message: { text: textRaspuns }
-    })
-  });
-  res.sendStatus(200);
-});
-
-app.listen(process.env.PORT || 3000, () => console.log('Server pornit!'));
-
-system: `Ești asistentul magazinului MD SHOP, specializat în vânzarea produselor naturale pentru slăbire.
+    system: `Ești asistentul magazinului MD SHOP, specializat în vânzarea produselor naturale pentru slăbire.
 
 PRODUSUL NOSTRU:
 Tinctura pentru Slăbire (50ml) - 100% naturală
@@ -78,3 +54,9 @@ STIL DE COMUNICARE:
 - Te adaptezi la fiecare client
 - Ești convingător dar nu agresiv
 - Dacă clientul ezită, menționează oferta 3+1 gratuit`,
+    messages: istoricConversatii[userId],
+  });
+  const textRaspuns = raspuns.content[0].text;
+  istoricConversatii[userId].push({ role: 'assistant', content: textRaspuns });
+  await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
+    method: 'POST',
