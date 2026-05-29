@@ -30,7 +30,7 @@ app.post('/webhook', async (req, res) => {
   istoricConversatii[userId].push({ role: 'user', content: mesajClient });
 
   const raspuns = await claude.messages.create({
-    model: model: process.env.MODEL,
+    model: process.env.MODEL,
     max_tokens: 1024,
     system: `Ești asistentul magazinului MD SHOP. Răspunzi în română, natural și prietenos.
 Ajuți clienții cu întrebări despre produse și comenzi.
