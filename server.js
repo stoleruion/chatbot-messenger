@@ -60,3 +60,13 @@ STIL DE COMUNICARE:
   istoricConversatii[userId].push({ role: 'assistant', content: textRaspuns });
   await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
     method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      recipient: { id: userId },
+      message: { text: textRaspuns }
+    })
+  });
+  res.sendStatus(200);
+});
+app.listen(process.env.PORT || 3000, () => console.log('Server pornit!'));
