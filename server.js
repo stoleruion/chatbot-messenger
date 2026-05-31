@@ -1,4 +1,4 @@
-// v8
+// v9 - fixed: cyrillic tags, telegram notifications, natural Russian tone
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -23,19 +23,54 @@ function detecteazaLimba(text) {
 }
 
 async function trimiteMessenger(userId, text) {
-  await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
+  const resp = await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ recipient: { id: userId }, message: { text } })
   });
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error('Messenger error:', err);
+  }
 }
 
 async function trimiteTelegram(mesaj) {
-  await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: TG_CHAT_ID, text: mesaj, parse_mode: 'HTML' })
+  try {
+    const resp = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: TG_CHAT_ID, text: mesaj, parse_mode: 'HTML' })
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error('Telegram error:', err);
+    }
+  } catch (e) {
+    console.error('Telegram fetch failed:', e);
+  }
+}
+
+// Extrage datele dintr-un tag [TAG: key=val, key=val]
+function parseazaTag(continut) {
+  const date = {};
+  continut.trim().split(',').forEach(item => {
+    const [key, ...val] = item.split('=');
+    if (key && val.length) date[key.trim().toLowerCase()] = val.join('=').trim();
   });
+  return date;
+}
+
+// Curăță TOATE variantele de taguri (latine + chirilice) din textul răspunsului
+function curataTags(text) {
+  return text
+    .replace(/\[COMANDA:.*?\]/gsi, '')
+    .replace(/\[ЗАКАЗ:.*?\]/gsi, '')      // rusă
+    .replace(/\[COMMANDA:.*?\]/gsi, '')    // greșeală comună
+    .replace(/\[APEL:.*?\]/gsi, '')
+    .replace(/\[АПЕЛ:.*?\]/gsi, '')        // rusă
+    .replace(/\[APPEL:.*?\]/gsi, '')       // altă greșeală
+    .replace(/\[CALL:.*?\]/gsi, '')
+    .trim();
 }
 
 app.get('/webhook', (req, res) => {
@@ -57,6 +92,12 @@ app.post('/webhook', async (req, res) => {
   if (!istoricConversatii[userId]) {
     istoricConversatii[userId] = [];
     limbaUtilizatori[userId] = detecteazaLimba(mesajClient);
+  } else {
+    // Re-detectează limba dacă clientul schimbă
+    const limbaNoua = detecteazaLimba(mesajClient);
+    if (limbaNoua !== limbaUtilizatori[userId]) {
+      limbaUtilizatori[userId] = limbaNoua;
+    }
   }
 
   istoricConversatii[userId].push({ role: 'user', content: mesajClient });
@@ -65,13 +106,18 @@ app.post('/webhook', async (req, res) => {
   const delay = 2000 + Math.floor(Math.random() * 2000);
   await sleep(delay);
 
-  const raspuns = await claude.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
-    system: `Ești un consultant de vânzări pentru magazinul MD SHOP.
+  let textRaspuns = '';
+  try {
+    const raspuns = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system: `Ești un consultant de vânzări pentru magazinul MD SHOP.
 
-LIMBA DE COMUNICARE — FOARTE IMPORTANT:
-Clientul folosește limba: ${limba === 'ru' ? 'RUSĂ. Răspunde EXCLUSIV în rusă, fără excepție.' : 'ROMÂNĂ. Răspunde EXCLUSIV în română, fără excepție.'}
+LIMBA DE COMUNICARE — OBLIGATORIU:
+${limba === 'ru'
+  ? 'Clientul scrie în RUSĂ. Răspunde EXCLUSIV în rusă, cu ton cald și natural, ca o prietenă care recomandă ceva. Nu formal, nu robotic.'
+  : 'Clientul scrie în ROMÂNĂ. Răspunde EXCLUSIV în română, cu ton cald și natural, ca o prietenă care recomandă ceva. Nu formal, nu robotic.'
+}
 Nu schimba niciodată limba indiferent de ce scrie clientul.
 
 REGULI DE COMUNICARE:
@@ -108,39 +154,72 @@ MESAJ FINAL DE CONFIRMARE:
 Română: "Perfect, comanda este înregistrată. În scurt timp vei primi un apel pentru a confirma datele."
 Rusă: "Отлично, заказ зарегистрирован. Скоро с тобой свяжется оператор для подтверждения."
 
-ÎNREGISTRARE COMANDĂ:
-Când ai toate datele scrie: [COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
-Când clientul vrea apel, după ce ai telefonul scrie: [APEL: nume=XXX, telefon=XXX]`,
-    messages: istoricConversatii[userId],
-  });
+ÎNREGISTRARE COMANDĂ — REGULI CRITICE PENTRU TAGURI:
+- Tagurile de mai jos scrie-le ÎNTOTDEAUNA cu litere LATINE, exact cum sunt scrise aici
+- Niciodată cu litere chirilice, niciodată altfel
+- Pune tagul la SFÂRȘITUL mesajului, după textul pentru client
 
-  const textRaspuns = raspuns.content[0].text;
+Când ai toate datele comenzii scrie la sfârșit:
+[COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
+
+Când clientul vrea să fie sunat, după ce ai telefonul scrie la sfârșit:
+[APEL: nume=XXX, telefon=XXX]`,
+      messages: istoricConversatii[userId],
+    });
+    textRaspuns = raspuns.content[0].text;
+  } catch (e) {
+    console.error('Claude error:', e);
+    const errMsg = limba === 'ru'
+      ? 'Извини, произошла ошибка. Попробуй снова через несколько секунд.'
+      : 'Scuze, a apărut o eroare. Încearcă din nou peste câteva secunde.';
+    await trimiteMessenger(userId, errMsg);
+    return;
+  }
+
   istoricConversatii[userId].push({ role: 'assistant', content: textRaspuns });
 
-  const comandaMatch = textRaspuns.match(/\[COMANDA:(.*?)\]/s);
-  const apelMatch = textRaspuns.match(/\[APEL:(.*?)\]/s);
+  // Detectează TOATE variantele de taguri (latine și chirilice)
+  const comandaMatch = textRaspuns.match(/\[(?:COMANDA|ЗАКАЗ|COMMANDA):([^\]]*)\]/i);
+  const apelMatch = textRaspuns.match(/\[(?:APEL|АПЕЛ|APPEL|CALL):([^\]]*)\]/i);
 
   if (comandaMatch) {
-    const date = {};
-    comandaMatch[1].trim().split(',').forEach(item => {
-      const [key, ...val] = item.split('=');
-      if (key && val) date[key.trim()] = val.join('=').trim();
-    });
+    const date = parseazaTag(comandaMatch[1]);
     const cantitate = parseInt(date['cantitate']) || 1;
-    const pretFinal = cantitate === 2 ? '458 MDL' : '229 MDL';
-    await trimiteTelegram(`🛒 <b>COMANDĂ NOUĂ!</b>\n\n${date['nume'] || ''}\n${date['adresa'] || ''}\n${date['telefon'] || ''}\n${date['produs'] || ''}\nCantitate: ${cantitate}\nPreț: ${pretFinal}`);
+    // Prețuri corecte per produs
+    let pretFinal = '';
+    const produs = (date['produs'] || '').toLowerCase();
+    if (produs.includes('valufix') || produs.includes('valu')) {
+      pretFinal = cantitate >= 2 ? `${cantitate * 199} MDL` : '199 MDL';
+    } else if (produs.includes('tinctura') || produs.includes('slab')) {
+      if (cantitate === 1) pretFinal = '379 MDL';
+      else if (cantitate === 2) pretFinal = '760 MDL';
+      else if (cantitate >= 3) pretFinal = '1150 MDL (3+1 gratuit)';
+    } else {
+      pretFinal = 'de verificat';
+    }
+
+    await trimiteTelegram(
+      `🛒 <b>COMANDĂ NOUĂ!</b>\n\n` +
+      `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
+      `📍 <b>Adresă:</b> ${date['adresa'] || '—'}\n` +
+      `📞 <b>Telefon:</b> ${date['telefon'] || '—'}\n` +
+      `📦 <b>Produs:</b> ${date['produs'] || '—'}\n` +
+      `🔢 <b>Cantitate:</b> ${cantitate}\n` +
+      `💰 <b>Preț:</b> ${pretFinal}`
+    );
   }
 
   if (apelMatch) {
-    const date = {};
-    apelMatch[1].trim().split(',').forEach(item => {
-      const [key, ...val] = item.split('=');
-      if (key && val) date[key.trim()] = val.join('=').trim();
-    });
-    await trimiteTelegram(`📞 <b>CLIENT VREA APEL!</b>\n\n${date['nume'] || ''}\n${date['telefon'] || ''}`);
+    const date = parseazaTag(apelMatch[1]);
+    await trimiteTelegram(
+      `📞 <b>CLIENT VREA APEL!</b>\n\n` +
+      `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
+      `📞 <b>Telefon:</b> ${date['telefon'] || '—'}`
+    );
   }
 
-  const textCurat = textRaspuns.replace(/\[COMANDA:.*?\]/s, '').replace(/\[APEL:.*?\]/s, '').trim();
+  // Curăță TOATE tagurile înainte de a trimite clientului
+  const textCurat = curataTags(textRaspuns);
   const parti = textCurat.split('[PAUZA]').map(p => p.trim()).filter(p => p);
 
   for (let i = 0; i < parti.length; i++) {
@@ -149,4 +228,4 @@ Când clientul vrea apel, după ce ai telefonul scrie: [APEL: nume=XXX, telefon=
   }
 });
 
-app.listen(process.env.PORT || 3000, () => console.log('Server pornit!'));
+app.listen(process.env.PORT || 3000, () => console.log('Server pornit pe portul', process.env.PORT || 3000));
