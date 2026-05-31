@@ -50,7 +50,6 @@ async function trimiteTelegram(mesaj) {
   }
 }
 
-// Extrage datele dintr-un tag [TAG: key=val, key=val]
 function parseazaTag(continut) {
   const date = {};
   continut.trim().split(',').forEach(item => {
@@ -60,15 +59,14 @@ function parseazaTag(continut) {
   return date;
 }
 
-// Curăță TOATE variantele de taguri (latine + chirilice) din textul răspunsului
 function curataTags(text) {
   return text
     .replace(/\[COMANDA:.*?\]/gsi, '')
-    .replace(/\[ЗАКАЗ:.*?\]/gsi, '')      // rusă
-    .replace(/\[COMMANDA:.*?\]/gsi, '')    // greșeală comună
+    .replace(/\[ЗАКАЗ:.*?\]/gsi, '')
+    .replace(/\[COMMANDA:.*?\]/gsi, '')
     .replace(/\[APEL:.*?\]/gsi, '')
-    .replace(/\[АПЕЛ:.*?\]/gsi, '')        // rusă
-    .replace(/\[APPEL:.*?\]/gsi, '')       // altă greșeală
+    .replace(/\[АПЕЛ:.*?\]/gsi, '')
+    .replace(/\[APPEL:.*?\]/gsi, '')
     .replace(/\[CALL:.*?\]/gsi, '')
     .trim();
 }
@@ -93,7 +91,6 @@ app.post('/webhook', async (req, res) => {
     istoricConversatii[userId] = [];
     limbaUtilizatori[userId] = detecteazaLimba(mesajClient);
   } else {
-    // Re-detectează limba dacă clientul schimbă
     const limbaNoua = detecteazaLimba(mesajClient);
     if (limbaNoua !== limbaUtilizatori[userId]) {
       limbaUtilizatori[userId] = limbaNoua;
@@ -178,47 +175,56 @@ Când clientul vrea să fie sunat, după ce ai telefonul scrie la sfârșit:
 
   istoricConversatii[userId].push({ role: 'assistant', content: textRaspuns });
 
-  // Detectează TOATE variantele de taguri (latine și chirilice)
   const comandaMatch = textRaspuns.match(/\[(?:COMANDA|ЗАКАЗ|COMMANDA):([^\]]*)\]/i);
   const apelMatch = textRaspuns.match(/\[(?:APEL|АПЕЛ|APPEL|CALL):([^\]]*)\]/i);
 
   if (comandaMatch) {
     const date = parseazaTag(comandaMatch[1]);
     const cantitate = parseInt(date['cantitate']) || 1;
-    // Prețuri corecte per produs
     let pretFinal = '';
     const produs = (date['produs'] || '').toLowerCase();
     if (produs.includes('valufix') || produs.includes('valu')) {
       pretFinal = cantitate >= 2 ? `${cantitate * 199} MDL` : '199 MDL';
-    } else if (produs.includes('tinctura') || produs.includes('slab')) {
+    } else if (produs.includes('tinctura') || produs.includes('slab') || produs.includes('тинктура') || produs.includes('похуд')) {
       if (cantitate === 1) pretFinal = '379 MDL';
       else if (cantitate === 2) pretFinal = '760 MDL';
       else if (cantitate >= 3) pretFinal = '1150 MDL (3+1 gratuit)';
     } else {
-      pretFinal = 'de verificat';
+      pretFinal = 'de verificat / уточнить';
     }
 
-    await trimiteTelegram(
-      `🛒 <b>COMANDĂ NOUĂ!</b>\n\n` +
-      `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
-      `📍 <b>Adresă:</b> ${date['adresa'] || '—'}\n` +
-      `📞 <b>Telefon:</b> ${date['telefon'] || '—'}\n` +
-      `📦 <b>Produs:</b> ${date['produs'] || '—'}\n` +
-      `🔢 <b>Cantitate:</b> ${cantitate}\n` +
-      `💰 <b>Preț:</b> ${pretFinal}`
-    );
+    const msgComanda = limba === 'ru'
+      ? `🛒 <b>НОВЫЙ ЗАКАЗ!</b>\n\n` +
+        `👤 <b>Имя:</b> ${date['nume'] || '—'}\n` +
+        `📍 <b>Адрес:</b> ${date['adresa'] || '—'}\n` +
+        `📞 <b>Телефон:</b> ${date['telefon'] || '—'}\n` +
+        `📦 <b>Товар:</b> ${date['produs'] || '—'}\n` +
+        `🔢 <b>Количество:</b> ${cantitate}\n` +
+        `💰 <b>Цена:</b> ${pretFinal}`
+      : `🛒 <b>COMANDĂ NOUĂ!</b>\n\n` +
+        `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
+        `📍 <b>Adresă:</b> ${date['adresa'] || '—'}\n` +
+        `📞 <b>Telefon:</b> ${date['telefon'] || '—'}\n` +
+        `📦 <b>Produs:</b> ${date['produs'] || '—'}\n` +
+        `🔢 <b>Cantitate:</b> ${cantitate}\n` +
+        `💰 <b>Preț:</b> ${pretFinal}`;
+
+    await trimiteTelegram(msgComanda);
   }
 
   if (apelMatch) {
     const date = parseazaTag(apelMatch[1]);
-    await trimiteTelegram(
-      `📞 <b>CLIENT VREA APEL!</b>\n\n` +
-      `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
-      `📞 <b>Telefon:</b> ${date['telefon'] || '—'}`
-    );
+    const msgApel = limba === 'ru'
+      ? `📞 <b>КЛИЕНТ ХОЧЕТ ЗВОНОК!</b>\n\n` +
+        `👤 <b>Имя:</b> ${date['nume'] || '—'}\n` +
+        `📞 <b>Телефон:</b> ${date['telefon'] || '—'}`
+      : `📞 <b>CLIENT VREA APEL!</b>\n\n` +
+        `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
+        `📞 <b>Telefon:</b> ${date['telefon'] || '—'}`;
+
+    await trimiteTelegram(msgApel);
   }
 
-  // Curăță TOATE tagurile înainte de a trimite clientului
   const textCurat = curataTags(textRaspuns);
   const parti = textCurat.split('[PAUZA]').map(p => p.trim()).filter(p => p);
 
