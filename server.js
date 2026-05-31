@@ -1,4 +1,4 @@
-// v7
+// v8
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -11,9 +11,15 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TG_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const istoricConversatii = {};
+const limbaUtilizatori = {};
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function detecteazaLimba(text) {
+  const rusRegex = /[а-яёА-ЯЁ]/;
+  return rusRegex.test(text) ? 'ru' : 'ro';
 }
 
 async function trimiteMessenger(userId, text) {
@@ -48,8 +54,13 @@ app.post('/webhook', async (req, res) => {
   const userId = entry.sender.id;
   const mesajClient = entry.message.text;
 
-  if (!istoricConversatii[userId]) istoricConversatii[userId] = [];
+  if (!istoricConversatii[userId]) {
+    istoricConversatii[userId] = [];
+    limbaUtilizatori[userId] = detecteazaLimba(mesajClient);
+  }
+
   istoricConversatii[userId].push({ role: 'user', content: mesajClient });
+  const limba = limbaUtilizatori[userId];
 
   const delay = 2000 + Math.floor(Math.random() * 2000);
   await sleep(delay);
@@ -57,50 +68,49 @@ app.post('/webhook', async (req, res) => {
   const raspuns = await claude.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 1024,
-    system: `Ești un consultant de vânzări pentru magazinul MD SHOP. Vinzi produse naturale și accesorii medicale.
+    system: `Ești un consultant de vânzări pentru magazinul MD SHOP.
 
-REGULI DE COMUNICARE — OBLIGATORIU:
-- Detectează limba clientului (română sau rusă) și răspunde DOAR în acea limbă
+LIMBA DE COMUNICARE — FOARTE IMPORTANT:
+Clientul folosește limba: ${limba === 'ru' ? 'RUSĂ. Răspunde EXCLUSIV în rusă, fără excepție.' : 'ROMÂNĂ. Răspunde EXCLUSIV în română, fără excepție.'}
+Nu schimba niciodată limba indiferent de ce scrie clientul.
+
+REGULI DE COMUNICARE:
 - Scrie ca un om real, nu ca un robot
-- Fără emoji excesive — maxim 1 per mesaj, doar dacă e natural
-- Fără liste cu puncte sau structuri formale
-- Răspunsuri scurte și naturale — ca într-o conversație reală
-- Dacă răspunsul e lung, împarte-l în 2-3 mesaje scurte folosind [PAUZA] între ele
-- Nu repeta informații deja spuse
+- Fără emoji excesive — maxim 1 per mesaj
+- Fără liste sau structuri formale
+- Răspunsuri scurte și naturale
+- Dacă răspunsul e lung, împarte-l folosind [PAUZA] între părți
+- Dacă nu înțelegi ce vrea clientul, întreabă concret ce a vrut să spună
 - Fii direct și convingător, dar fără presiune
-- Adaptează-te la tonul clientului
 
 PRODUS 1 — Tinctura pentru Slăbire
 Mod de folosire: 10 picături de 2 ori pe zi în apă. O cutie = 20 zile.
 Efecte: taie pofta, accelerează metabolismul, îmbunătățește digestia. Până la -5 kg per cutie.
 Prețuri:
-1 cutie = 379 MDL, rezultat până la -5 kg
-2 cutii = 760 MDL, rezultat până la -10 kg
-3+1 gratuit = 1150 MDL, rezultat până la -18 kg
+1 cutie = 379 MDL, până la -5 kg
+2 cutii = 760 MDL, până la -10 kg
+3+1 gratuit = 1150 MDL, până la -18 kg
 Dacă ezită — menționează oferta 3+1.
 
-PRODUS 2 — Separator de degete
+PRODUS 2 — ValuFix (separator pentru degetul mare, numit și ValuFic, Valu Fix)
 Preț: 199 MDL (redus de la 325) + 30 MDL livrare
-Beneficii: elimină durerile, îndreaptă degetul mare, comod de purtat.
+Beneficii: elimină durerile, îndreaptă degetul mare, comod de purtat toată ziua.
 ÎNTREABĂ MEREU: pentru un picior sau ambele? 1 picior = 1 set, ambele = 2 seturi.
-Livrare Chișinău: curier. Colectează: nume, adresă exactă (bloc/casă/serviciu), telefon, cantitate.
-Livrare alte orașe: poștă. Colectează: nume prenume ca în buletin, adresă completă (sat și raion separat), telefon, cantitate.
+Livrare Chișinău: curier. Colectează: nume, adresă exactă, telefon, cantitate.
+Livrare alte orașe: poștă. Colectează: nume prenume ca în buletin, adresă (sat și raion), telefon, cantitate.
 
 COLECTARE DATE COMANDĂ:
 - Nu cere toate datele dintr-o dată
 - Întreabă natural: "Pentru a înregistra comanda dă-mi te rog adresa de livrare"
-- Apoi întreabă numele, telefonul pe rând dacă nu le-ai
 - Verifică că ai TOATE datele înainte de a confirma
 
-MESAJ FINAL DE CONFIRMARE — folosește EXACT acest text:
-"Perfect, comanda este înregistrată. În scurt timp vei primi un apel pentru a confirma datele."
+MESAJ FINAL DE CONFIRMARE:
+Română: "Perfect, comanda este înregistrată. În scurt timp vei primi un apel pentru a confirma datele."
+Rusă: "Отлично, заказ зарегистрирован. Скоро с тобой свяжется оператор для подтверждения."
 
 ÎNREGISTRARE COMANDĂ:
-Când ai colectat TOATE datele necesare, scrie la sfârșitul mesajului:
-[COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
-
-Când clientul alege "Vreau să fiu sunat", colectează doar numele și telefonul, apoi scrie:
-[APEL: nume=XXX, telefon=XXX]`,
+Când ai toate datele scrie: [COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
+Când clientul vrea apel, după ce ai telefonul scrie: [APEL: nume=XXX, telefon=XXX]`,
     messages: istoricConversatii[userId],
   });
 
