@@ -1,4 +1,4 @@
-// v6
+// v7
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -30,23 +30,6 @@ async function trimiteTelegram(mesaj) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: TG_CHAT_ID, text: mesaj, parse_mode: 'HTML' })
   });
-}
-
-function imparteText(text) {
-  if (text.length <= 300) return [text];
-  const parti = [];
-  const propozitii = text.split(/(?<=[.!?])\s+/);
-  let parte = '';
-  for (const prop of propozitii) {
-    if ((parte + prop).length > 300) {
-      if (parte) parti.push(parte.trim());
-      parte = prop;
-    } else {
-      parte += (parte ? ' ' : '') + prop;
-    }
-  }
-  if (parte) parti.push(parte.trim());
-  return parti.length > 0 ? parti : [text];
 }
 
 app.get('/webhook', (req, res) => {
@@ -100,11 +83,20 @@ PRODUS 2 — Separator de degete
 Preț: 199 MDL (redus de la 325) + 30 MDL livrare
 Beneficii: elimină durerile, îndreaptă degetul mare, comod de purtat.
 ÎNTREABĂ MEREU: pentru un picior sau ambele? 1 picior = 1 set, ambele = 2 seturi.
-Livrare Chișinău: curier. Colectează: nume, adresă exactă, telefon, cantitate.
-Livrare alte orașe: poștă. Colectează: nume prenume ca în buletin, sat/raion, telefon, cantitate.
+Livrare Chișinău: curier. Colectează: nume, adresă exactă (bloc/casă/serviciu), telefon, cantitate.
+Livrare alte orașe: poștă. Colectează: nume prenume ca în buletin, adresă completă (sat și raion separat), telefon, cantitate.
+
+COLECTARE DATE COMANDĂ:
+- Nu cere toate datele dintr-o dată
+- Întreabă natural: "Pentru a înregistra comanda dă-mi te rog adresa de livrare"
+- Apoi întreabă numele, telefonul pe rând dacă nu le-ai
+- Verifică că ai TOATE datele înainte de a confirma
+
+MESAJ FINAL DE CONFIRMARE — folosește EXACT acest text:
+"Perfect, comanda este înregistrată. În scurt timp vei primi un apel pentru a confirma datele."
 
 ÎNREGISTRARE COMANDĂ:
-Când ai colectat TOATE datele necesare (nume, adresă, telefon, cantitate), scrie la sfârșitul mesajului:
+Când ai colectat TOATE datele necesare, scrie la sfârșitul mesajului:
 [COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
 
 Când clientul alege "Vreau să fiu sunat", colectează doar numele și telefonul, apoi scrie:
@@ -115,18 +107,29 @@ Când clientul alege "Vreau să fiu sunat", colectează doar numele și telefonu
   const textRaspuns = raspuns.content[0].text;
   istoricConversatii[userId].push({ role: 'assistant', content: textRaspuns });
 
-  // Detectează comanda sau cerere de apel
   const comandaMatch = textRaspuns.match(/\[COMANDA:(.*?)\]/s);
   const apelMatch = textRaspuns.match(/\[APEL:(.*?)\]/s);
 
   if (comandaMatch) {
-    await trimiteTelegram(`🛒 <b>COMANDĂ NOUĂ!</b>\n${comandaMatch[1].trim()}`);
-  }
-  if (apelMatch) {
-    await trimiteTelegram(`📞 <b>CLIENT VREA APEL!</b>\n${apelMatch[1].trim()}`);
+    const date = {};
+    comandaMatch[1].trim().split(',').forEach(item => {
+      const [key, ...val] = item.split('=');
+      if (key && val) date[key.trim()] = val.join('=').trim();
+    });
+    const cantitate = parseInt(date['cantitate']) || 1;
+    const pretFinal = cantitate === 2 ? '458 MDL' : '229 MDL';
+    await trimiteTelegram(`🛒 <b>COMANDĂ NOUĂ!</b>\n\n${date['nume'] || ''}\n${date['adresa'] || ''}\n${date['telefon'] || ''}\n${date['produs'] || ''}\nCantitate: ${cantitate}\nPreț: ${pretFinal}`);
   }
 
-  // Trimite mesajul fără tagurile interne
+  if (apelMatch) {
+    const date = {};
+    apelMatch[1].trim().split(',').forEach(item => {
+      const [key, ...val] = item.split('=');
+      if (key && val) date[key.trim()] = val.join('=').trim();
+    });
+    await trimiteTelegram(`📞 <b>CLIENT VREA APEL!</b>\n\n${date['nume'] || ''}\n${date['telefon'] || ''}`);
+  }
+
   const textCurat = textRaspuns.replace(/\[COMANDA:.*?\]/s, '').replace(/\[APEL:.*?\]/s, '').trim();
   const parti = textCurat.split('[PAUZA]').map(p => p.trim()).filter(p => p);
 
