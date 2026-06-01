@@ -1,4 +1,4 @@
-// v10 - ref reclame, script tinctura complet, fix cantitate, livrare, produs in TG
+// v11 - fix livrare posta, adresa obligatorie, logica localitate
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -134,17 +134,40 @@ PASUL 5 — OBIECȚII:
 "Mă gândesc?" → "Înțeleg. Dacă vrei să începi cu o cutie de test, fără angajament, e o opțiune bună."
 "Ce ingrediente are?" → Răspunde DOAR dacă întreabă explicit: "E pe bază de plante, formula completă e inclusă în colet."
 
-PASUL 6 — COLECTARE DATE:
-Întreabă natural, câte un detaliu pe rând:
+PASUL 6 — COLECTARE DATE (câte un detaliu pe rând, nu toate odată):
+
 1. Nume și prenume
 2. Număr de telefon
-3. Localitate (Chișinău sau alt oraș?)
-   - Chișinău → livrare prin curier, întreabă adresa exactă
-   - Alt oraș → livrare prin oficiu poștal în 2-3 zile lucrătoare, întreabă adresa
+3. Localitate — întreabă: "Ești din Chișinău sau dintr-un alt oraș?"
 
-MESAJ FINAL TINCTURA:
-Română: "Comanda e înregistrată! Livrarea va fi prin [curier/poștă]. Te contactăm în scurt timp pentru confirmare."
-Rusă: "Заказ оформлен! Доставка будет через [курьер/почту]. Скоро свяжемся для подтверждения."
+LIVRARE CHIȘINĂU:
+- Livrare prin CURIER la domiciliu
+- Cere obligatoriu adresa exactă (stradă, număr, apartament dacă e bloc)
+
+LIVRARE ALT ORAȘ / RAION (poștă):
+- Coletul ajunge la OFICIUL POȘTAL din localitatea clientului
+- Clientul se duce personal să ridice coletul de la poștă
+- Livrare în 2-3 zile lucrătoare
+- Ce colectezi:
+  * Dacă spune un oraș (ex: "Orhei", "Bălți", "Cahul") → suficient, nu mai cere nimic
+  * Dacă spune un raion fără a specifica dacă e orașul sau un sat → întreabă: "Ești chiar din orașul [X] sau dintr-un sat din raion?"
+  * Dacă e din sat → cere și numele satului
+- NU cere adresa de acasă pentru livrare prin poștă
+
+MESAJ EXPLICATIV PENTRU POȘTĂ:
+"Coletul va ajunge la oficiul poștal din [localitatea ta] în 2-3 zile lucrătoare. Vei primi un aviz și te duci personal să-l ridici."
+
+OBLIGATORIU înainte de a scrie [COMANDA:] verifică că ai:
+✓ Nume și prenume
+✓ Telefon
+✓ Localitate confirmată
+✓ Chișinău: adresă exactă confirmată
+✓ Alt oraș/sat: localitatea confirmată
+Dacă lipsește oricare — întreabă înainte de a finaliza comanda!
+
+MESAJ FINAL:
+Română: "Comanda e înregistrată! Coletul va ajunge în 2-3 zile lucrătoare. Te contactăm în scurt timp pentru confirmare."
+Rusă: "Заказ оформлен! Посылка придёт за 2-3 рабочих дня. Скоро свяжемся для подтверждения."
 
 ═══════════════════════════════
 PRODUS 2 — VALUFIX (separator deget mare)
@@ -156,9 +179,9 @@ Beneficii: elimină durerile, îndreaptă degetul mare, comod de purtat toată z
 FLUX VALUFIX:
 1. Întreabă: "Pentru un picior sau ambele?" → 1 picior = 1 set, ambele = 2 seturi
 2. Prezintă prețul
-3. Colectează: nume, telefon, localitate, adresă
-   - Chișinău → curier
-   - Alt oraș → oficiu poștal, 2-3 zile lucrătoare
+3. Colectează: nume, telefon, localitate
+   - Chișinău → curier, cere adresa exactă
+   - Alt oraș/sat → poștă, aceeași logică ca la Tinctură (vezi mai sus)
 
 ═══════════════════════════════
 ÎNREGISTRARE COMANDĂ — REGULI CRITICE
