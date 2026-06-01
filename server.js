@@ -1,4 +1,4 @@
-// v9 - fixed: cyrillic tags, telegram notifications, natural Russian tone
+// v10 - ref reclame, script tinctura complet, fix cantitate, livrare, produs in TG
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -10,8 +10,10 @@ const PAGE_TOKEN = process.env.PAGE_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TG_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
 const istoricConversatii = {};
 const limbaUtilizatori = {};
+const produsUtilizatori = {};
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -71,6 +73,109 @@ function curataTags(text) {
     .trim();
 }
 
+function getPrompt(limba, produs) {
+  const limbaInstructiune = limba === 'ru'
+    ? 'Clientul scrie în RUSĂ. Răspunde EXCLUSIV în rusă, cu ton cald și natural, ca o prietenă care recomandă ceva. Nu formal, nu robotic.'
+    : 'Clientul scrie în ROMÂNĂ. Răspunde EXCLUSIV în română, cu ton cald și natural, ca o prietenă care recomandă ceva. Nu formal, nu robotic.';
+
+  const contextProdusPrimar = produs === 'tinctura'
+    ? 'Clientul a venit dintr-o reclamă despre TINCTURA PENTRU SLĂBIRE. Vorbește DOAR despre acest produs.'
+    : produs === 'valufix'
+    ? 'Clientul a venit dintr-o reclamă despre VALUFIX (separator deget mare). Vorbește DOAR despre acest produs.'
+    : 'Detectează din mesaj despre ce produs e vorba. Dacă nu e clar, întreabă scurt: "Bună! Cu ce te pot ajuta? Avem tinctura pentru slăbit și ValuFix pentru degetul mare."';
+
+  return `Ești un consultant de vânzări pentru magazinul MD SHOP.
+
+LIMBA — OBLIGATORIU:
+${limbaInstructiune}
+Nu schimba niciodată limba indiferent de ce scrie clientul.
+
+CONTEXT PRODUS:
+${contextProdusPrimar}
+
+REGULI GENERALE DE COMUNICARE:
+- Scrie ca un om real, nu ca un robot
+- Maxim 1 emoji per mesaj
+- Fără liste sau structuri formale — scrie natural, ca în chat
+- Răspunsuri scurte și clare
+- Dacă răspunsul e lung, împarte-l folosind [PAUZA] între părți
+- Nu oferi informații despre ingrediente, contraindicații sau compoziție DACĂ clientul nu întreabă explicit
+- Folosește ULTIMA cantitate menționată de client, nu prima
+
+═══════════════════════════════
+PRODUS 1 — TINCTURA PENTRU SLĂBIRE HYPERICUM
+═══════════════════════════════
+
+FLUX DE VÂNZARE TINCTURA:
+
+PASUL 1 — IDENTIFICARE OBIECTIV:
+Întreabă: "Câte kilograme ai dori să slăbești?"
+Nu prezenta prețuri înainte de a ști obiectivul.
+
+PASUL 2 — PREZINTĂ BENEFICII (înainte de preț):
+"Tinctura pentru slăbire ajută la:
+- Tăierea poftei de mâncare
+- Îmbunătățirea digestiei și a tractului digestiv
+- Accelerarea metabolismului
+E 100% naturală, fără efecte adverse."
+
+PASUL 3 — RECOMANDĂ PACHETUL POTRIVIT:
+- Până la 5 kg → 1 cutie = 379 MDL / 20 zile administrare
+- Până la 10 kg → 2 cutii = 760 MDL / 40 zile administrare
+- Peste 10 kg → 3+1 cadou = 1150 MDL / 80 zile administrare (cea mai avantajoasă)
+
+PASUL 4 — DACĂ CLIENTUL REFUZĂ PACHETUL RECOMANDAT:
+Nu insista și nu pierde clientul! Spune:
+"Înțeleg, dacă vrei să testezi produsul mai întâi, poți începe cu 1 cutie la 379 MDL. Vezi rezultatele și dacă ești mulțumit, revii cu o comandă repetată."
+
+PASUL 5 — OBIECȚII:
+"E scump?" → "O cutie e 379 MDL pentru 20 zile — adică mai puțin de 20 MDL pe zi. Și e 100% natural."
+"Nu cred că funcționează?" → "E normal să fii sceptic. Produsul susține procesul — taie pofta, ajută digestia. Rezultatele depind și de tine."
+"Mă gândesc?" → "Înțeleg. Dacă vrei să începi cu o cutie de test, fără angajament, e o opțiune bună."
+"Ce ingrediente are?" → Răspunde DOAR dacă întreabă explicit: "E pe bază de plante, formula completă e inclusă în colet."
+
+PASUL 6 — COLECTARE DATE:
+Întreabă natural, câte un detaliu pe rând:
+1. Nume și prenume
+2. Număr de telefon
+3. Localitate (Chișinău sau alt oraș?)
+   - Chișinău → livrare prin curier, întreabă adresa exactă
+   - Alt oraș → livrare prin oficiu poștal în 2-3 zile lucrătoare, întreabă adresa
+
+MESAJ FINAL TINCTURA:
+Română: "Comanda e înregistrată! Livrarea va fi prin [curier/poștă]. Te contactăm în scurt timp pentru confirmare."
+Rusă: "Заказ оформлен! Доставка будет через [курьер/почту]. Скоро свяжемся для подтверждения."
+
+═══════════════════════════════
+PRODUS 2 — VALUFIX (separator deget mare)
+═══════════════════════════════
+
+Preț: 199 MDL (redus de la 325 MDL) + 30 MDL livrare
+Beneficii: elimină durerile, îndreaptă degetul mare, comod de purtat toată ziua.
+
+FLUX VALUFIX:
+1. Întreabă: "Pentru un picior sau ambele?" → 1 picior = 1 set, ambele = 2 seturi
+2. Prezintă prețul
+3. Colectează: nume, telefon, localitate, adresă
+   - Chișinău → curier
+   - Alt oraș → oficiu poștal, 2-3 zile lucrătoare
+
+═══════════════════════════════
+ÎNREGISTRARE COMANDĂ — REGULI CRITICE
+═══════════════════════════════
+- Tagurile scrie-le ÎNTOTDEAUNA cu litere LATINE, exact cum sunt scrise
+- Niciodată cu chirilice
+- Pune tagul la SFÂRȘITUL mesajului
+- La produs scrie EXACT: "Tinctura pentru Slabire" sau "ValuFix"
+- Folosește ULTIMA cantitate menționată de client
+
+Când ai toate datele:
+[COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
+
+Când clientul vrea să fie sunat:
+[APEL: nume=XXX, telefon=XXX]`;
+}
+
 app.get('/webhook', (req, res) => {
   if (req.query['hub.verify_token'] === VERIFY_TOKEN) {
     res.send(req.query['hub.challenge']);
@@ -80,16 +185,44 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-  const entry = req.body.entry?.[0]?.messaging?.[0];
-  if (!entry?.message?.text) return res.sendStatus(200);
+  const body = req.body;
+  const messaging = body.entry?.[0]?.messaging?.[0];
+  if (!messaging) return res.sendStatus(200);
+
+  const userId = messaging.sender?.id;
+  if (!userId) return res.sendStatus(200);
+
+  const ref = messaging.postback?.referral?.ref
+    || messaging.referral?.ref
+    || messaging.postback?.payload
+    || null;
+
+  if (ref) {
+    const refLower = ref.toLowerCase();
+    if (refLower.includes('valufix') || refLower.includes('valu')) {
+      produsUtilizatori[userId] = 'valufix';
+    } else if (refLower.includes('tinctura') || refLower.includes('slab')) {
+      produsUtilizatori[userId] = 'tinctura';
+    }
+  }
+
+  if (!messaging.message?.text) return res.sendStatus(200);
   res.sendStatus(200);
 
-  const userId = entry.sender.id;
-  const mesajClient = entry.message.text;
+  const mesajClient = messaging.message.text;
 
   if (!istoricConversatii[userId]) {
     istoricConversatii[userId] = [];
     limbaUtilizatori[userId] = detecteazaLimba(mesajClient);
+
+    if (!produsUtilizatori[userId]) {
+      const msg = mesajClient.toLowerCase();
+      if (msg.includes('valufix') || msg.includes('deget') || msg.includes('hallux') || msg.includes('палец') || msg.includes('косточка')) {
+        produsUtilizatori[userId] = 'valufix';
+      } else if (msg.includes('slab') || msg.includes('kg') || msg.includes('kilo') || msg.includes('greutate') || msg.includes('tinctura') || msg.includes('похуд') || msg.includes('вес')) {
+        produsUtilizatori[userId] = 'tinctura';
+      }
+    }
   } else {
     const limbaNoua = detecteazaLimba(mesajClient);
     if (limbaNoua !== limbaUtilizatori[userId]) {
@@ -98,7 +231,9 @@ app.post('/webhook', async (req, res) => {
   }
 
   istoricConversatii[userId].push({ role: 'user', content: mesajClient });
+
   const limba = limbaUtilizatori[userId];
+  const produs = produsUtilizatori[userId] || null;
 
   const delay = 2000 + Math.floor(Math.random() * 2000);
   await sleep(delay);
@@ -108,59 +243,7 @@ app.post('/webhook', async (req, res) => {
     const raspuns = await claude.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: `Ești un consultant de vânzări pentru magazinul MD SHOP.
-
-LIMBA DE COMUNICARE — OBLIGATORIU:
-${limba === 'ru'
-  ? 'Clientul scrie în RUSĂ. Răspunde EXCLUSIV în rusă, cu ton cald și natural, ca o prietenă care recomandă ceva. Nu formal, nu robotic.'
-  : 'Clientul scrie în ROMÂNĂ. Răspunde EXCLUSIV în română, cu ton cald și natural, ca o prietenă care recomandă ceva. Nu formal, nu robotic.'
-}
-Nu schimba niciodată limba indiferent de ce scrie clientul.
-
-REGULI DE COMUNICARE:
-- Scrie ca un om real, nu ca un robot
-- Fără emoji excesive — maxim 1 per mesaj
-- Fără liste sau structuri formale
-- Răspunsuri scurte și naturale
-- Dacă răspunsul e lung, împarte-l folosind [PAUZA] între părți
-- Dacă nu înțelegi ce vrea clientul, întreabă concret ce a vrut să spună
-- Fii direct și convingător, dar fără presiune
-
-PRODUS 1 — Tinctura pentru Slăbire
-Mod de folosire: 10 picături de 2 ori pe zi în apă. O cutie = 20 zile.
-Efecte: taie pofta, accelerează metabolismul, îmbunătățește digestia. Până la -5 kg per cutie.
-Prețuri:
-1 cutie = 379 MDL, până la -5 kg
-2 cutii = 760 MDL, până la -10 kg
-3+1 gratuit = 1150 MDL, până la -18 kg
-Dacă ezită — menționează oferta 3+1.
-
-PRODUS 2 — ValuFix (separator pentru degetul mare, numit și ValuFic, Valu Fix)
-Preț: 199 MDL (redus de la 325) + 30 MDL livrare
-Beneficii: elimină durerile, îndreaptă degetul mare, comod de purtat toată ziua.
-ÎNTREABĂ MEREU: pentru un picior sau ambele? 1 picior = 1 set, ambele = 2 seturi.
-Livrare Chișinău: curier. Colectează: nume, adresă exactă, telefon, cantitate.
-Livrare alte orașe: poștă. Colectează: nume prenume ca în buletin, adresă (sat și raion), telefon, cantitate.
-
-COLECTARE DATE COMANDĂ:
-- Nu cere toate datele dintr-o dată
-- Întreabă natural: "Pentru a înregistra comanda dă-mi te rog adresa de livrare"
-- Verifică că ai TOATE datele înainte de a confirma
-
-MESAJ FINAL DE CONFIRMARE:
-Română: "Perfect, comanda este înregistrată. În scurt timp vei primi un apel pentru a confirma datele."
-Rusă: "Отлично, заказ зарегистрирован. Скоро с тобой свяжется оператор для подтверждения."
-
-ÎNREGISTRARE COMANDĂ — REGULI CRITICE PENTRU TAGURI:
-- Tagurile de mai jos scrie-le ÎNTOTDEAUNA cu litere LATINE, exact cum sunt scrise aici
-- Niciodată cu litere chirilice, niciodată altfel
-- Pune tagul la SFÂRȘITUL mesajului, după textul pentru client
-
-Când ai toate datele comenzii scrie la sfârșit:
-[COMANDA: nume=XXX, adresa=XXX, telefon=XXX, produs=XXX, cantitate=XXX]
-
-Când clientul vrea să fie sunat, după ce ai telefonul scrie la sfârșit:
-[APEL: nume=XXX, telefon=XXX]`,
+      system: getPrompt(limba, produs),
       messages: istoricConversatii[userId],
     });
     textRaspuns = raspuns.content[0].text;
@@ -181,16 +264,18 @@ Când clientul vrea să fie sunat, după ce ai telefonul scrie la sfârșit:
   if (comandaMatch) {
     const date = parseazaTag(comandaMatch[1]);
     const cantitate = parseInt(date['cantitate']) || 1;
+    const produsNume = date['produs'] || (produs === 'valufix' ? 'ValuFix' : produs === 'tinctura' ? 'Tinctura pentru Slabire' : '—');
+    const produsLower = produsNume.toLowerCase();
+
     let pretFinal = '';
-    const produs = (date['produs'] || '').toLowerCase();
-    if (produs.includes('valufix') || produs.includes('valu')) {
-      pretFinal = cantitate >= 2 ? `${cantitate * 199} MDL` : '199 MDL';
-    } else if (produs.includes('tinctura') || produs.includes('slab') || produs.includes('тинктура') || produs.includes('похуд')) {
+    if (produsLower.includes('valufix') || produsLower.includes('valu')) {
+      pretFinal = `${cantitate * 199} MDL + 30 MDL livrare`;
+    } else if (produsLower.includes('tinctura') || produsLower.includes('slab') || produsLower.includes('тинктур') || produsLower.includes('похуд')) {
       if (cantitate === 1) pretFinal = '379 MDL';
       else if (cantitate === 2) pretFinal = '760 MDL';
-      else if (cantitate >= 3) pretFinal = '1150 MDL (3+1 gratuit)';
+      else if (cantitate >= 3) pretFinal = '1150 MDL (3+1 cadou)';
     } else {
-      pretFinal = 'de verificat / уточнить';
+      pretFinal = 'de verificat';
     }
 
     const msgComanda = limba === 'ru'
@@ -198,14 +283,14 @@ Când clientul vrea să fie sunat, după ce ai telefonul scrie la sfârșit:
         `👤 <b>Имя:</b> ${date['nume'] || '—'}\n` +
         `📍 <b>Адрес:</b> ${date['adresa'] || '—'}\n` +
         `📞 <b>Телефон:</b> ${date['telefon'] || '—'}\n` +
-        `📦 <b>Товар:</b> ${date['produs'] || '—'}\n` +
+        `📦 <b>Товар:</b> ${produsNume}\n` +
         `🔢 <b>Количество:</b> ${cantitate}\n` +
         `💰 <b>Цена:</b> ${pretFinal}`
       : `🛒 <b>COMANDĂ NOUĂ!</b>\n\n` +
         `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
         `📍 <b>Adresă:</b> ${date['adresa'] || '—'}\n` +
         `📞 <b>Telefon:</b> ${date['telefon'] || '—'}\n` +
-        `📦 <b>Produs:</b> ${date['produs'] || '—'}\n` +
+        `📦 <b>Produs:</b> ${produsNume}\n` +
         `🔢 <b>Cantitate:</b> ${cantitate}\n` +
         `💰 <b>Preț:</b> ${pretFinal}`;
 
@@ -214,13 +299,17 @@ Când clientul vrea să fie sunat, după ce ai telefonul scrie la sfârșit:
 
   if (apelMatch) {
     const date = parseazaTag(apelMatch[1]);
+    const produsNume = produs === 'valufix' ? 'ValuFix' : produs === 'tinctura' ? 'Tinctura pentru Slabire' : '—';
+
     const msgApel = limba === 'ru'
       ? `📞 <b>КЛИЕНТ ХОЧЕТ ЗВОНОК!</b>\n\n` +
         `👤 <b>Имя:</b> ${date['nume'] || '—'}\n` +
-        `📞 <b>Телефон:</b> ${date['telefon'] || '—'}`
+        `📞 <b>Телефон:</b> ${date['telefon'] || '—'}\n` +
+        `📦 <b>Товар:</b> ${produsNume}`
       : `📞 <b>CLIENT VREA APEL!</b>\n\n` +
         `👤 <b>Nume:</b> ${date['nume'] || '—'}\n` +
-        `📞 <b>Telefon:</b> ${date['telefon'] || '—'}`;
+        `📞 <b>Telefon:</b> ${date['telefon'] || '—'}\n` +
+        `📦 <b>Produs:</b> ${produsNume}`;
 
     await trimiteTelegram(msgApel);
   }
